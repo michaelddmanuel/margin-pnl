@@ -45,10 +45,7 @@ function load(): StoreShape {
   try {
     const raw = localStorage.getItem(KEY);
     if (raw) {
-      // pure demo data from an older deploy → refresh to the current seed
-      const untouched = localStorage.getItem(TOUCHED_KEY) !== "1";
-      const stale = localStorage.getItem(SEED_KEY) !== SEED_VERSION;
-      if (untouched && stale) return seedStorage();
+      // NEVER auto-overwrite existing data — seed only when storage is empty
       const parsed = JSON.parse(raw) as StoreShape;
       if (Array.isArray(parsed.businesses)) return migrate(parsed);
     }
