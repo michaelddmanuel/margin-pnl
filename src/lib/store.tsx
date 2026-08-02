@@ -12,12 +12,25 @@ import { makeSeedBusinesses, newId } from "./seed";
 const KEY = "margin.v1";
 const AUTH_KEY = "margin.auth";
 
+/** older saves stored a flat unitCount — wrap it into a single default group */
+function migrate(parsed: StoreShape): StoreShape {
+  return {
+    businesses: parsed.businesses.map((b) => {
+      const legacy = b as Business & { unitCount?: number };
+      if (!Array.isArray(b.groups) || b.groups.length === 0) {
+        return { ...b, groups: [{ id: newId("grp"), label: "", count: legacy.unitCount ?? 0 }] };
+      }
+      return b;
+    }),
+  };
+}
+
 function load(): StoreShape {
   try {
     const raw = localStorage.getItem(KEY);
     if (raw) {
       const parsed = JSON.parse(raw) as StoreShape;
-      if (Array.isArray(parsed.businesses)) return parsed;
+      if (Array.isArray(parsed.businesses)) return migrate(parsed);
     }
   } catch {
     // fall through to seed

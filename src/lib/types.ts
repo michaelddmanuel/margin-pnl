@@ -15,10 +15,19 @@ export interface MoneyLine {
   id: string;
   name: string;
   category: Category;
-  /** cents; per-unit amount if kind === "perUnit" */
+  /** cents; per-unit amount if kind === "perUnit" (fallback when no group rate) */
   amountCents: number;
   frequency: Frequency;
   kind: Kind;
+  /** per-unit lines only: cents per unit, keyed by group id (tiered pricing) */
+  groupAmounts?: Record<string, number>;
+}
+
+/** a pricing tier of the business's unit, e.g. "Under 3" kids */
+export interface UnitGroup {
+  id: string;
+  label: string;
+  count: number;
 }
 
 export interface Business {
@@ -27,7 +36,7 @@ export interface Business {
   icon: string;
   color: string;
   unitLabel: string;
-  unitCount: number;
+  groups: UnitGroup[];
   income: MoneyLine[];
   expenses: MoneyLine[];
   createdAt: string;

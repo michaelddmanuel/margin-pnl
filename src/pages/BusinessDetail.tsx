@@ -8,8 +8,11 @@ import {
   fmtMoney,
   fmtPct,
   fmtSigned,
+  groupRateCents,
   lineMonthlyCents,
   plural,
+  scaleGroupCounts,
+  totalUnits,
 } from "../lib/engine";
 import { useStore } from "../lib/store";
 import {
@@ -21,6 +24,7 @@ import {
   type Frequency,
   type Kind,
   type MoneyLine,
+  type UnitGroup,
 } from "../lib/types";
 import { AppHeader, BusinessModal } from "./Dashboard";
 
@@ -49,33 +53,68 @@ function LineSheet({
 }) {
   const { addLine, updateLine } = useStore();
   const cats = side === "income" ? INCOME_CATEGORIES : EXPENSE_CATEGORIES;
+  const multiGroup = biz.groups.length > 1;
   const [name, setName] = useState(editing?.name ?? "");
   const [amount, setAmount] = useState(editing ? String(editing.amountCents / 100) : "");
   const [category, setCategory] = useState<Category>(editing?.category ?? cats[0]);
   const [frequency, setFrequency] = useState<Frequency>(editing?.frequency ?? "monthly");
   const [kind, setKind] = useState<Kind>(editing?.kind ?? "fixed");
+  const [tiered, setTiered] = useState(!!editing?.groupAmounts);
+  const [tierAmounts, setTierAmounts] = useState<Record<string, string>>(() =>
+    Object.fromEntries(
+      biz.groups.map((g) => [
+        g.id,
+        editing ? String(groupRateCents(editing, g.id) / 100) : "",
+      ]),
+    ),
+  );
   const [err, setErr] = useState<string | null>(null);
+
+  const useTiers = kind === "perUnit" && multiGroup && tiered;
 
   function submit(e?: FormEvent) {
     e?.preventDefault();
     const n = name.trim();
-    const cents = Math.round(Number(amount) * 100);
     if (!n) return setErr("Name the line.");
-    if (!Number.isFinite(cents) || cents <= 0) return setErr("Amount must be more than zero.");
-    const data = { name: n, category, amountCents: cents, frequency, kind };
+    let amountCents: number;
+    let groupAmounts: Record<string, number> | undefined;
+    if (useTiers) {
+      groupAmounts = {};
+      for (const g of biz.groups) {
+        const c = Math.round(Number(tierAmounts[g.id]) * 100);
+        if (!Number.isFinite(c) || c <= 0)
+          return setErr(`Every ${biz.unitLabel} group needs an amount above zero.`);
+        groupAmounts[g.id] = c;
+      }
+      amountCents = groupAmounts[biz.groups[0].id]; // fallback rate for future groups
+    } else {
+      amountCents = Math.round(Number(amount) * 100);
+      if (!Number.isFinite(amountCents) || amountCents <= 0)
+        return setErr("Amount must be more than zero.");
+    }
+    const data = { name: n, category, amountCents, frequency, kind, groupAmounts };
     if (editing) updateLine(biz.id, side, { ...data, id: editing.id });
     else addLine(biz.id, side, data);
     onClose();
   }
 
+  const previewLine: MoneyLine = {
+    id: "x",
+    name: "",
+    category,
+    amountCents: Math.round(Number(amount || "0") * 100),
+    frequency,
+    kind,
+    groupAmounts: useTiers
+      ? Object.fromEntries(
+          biz.groups.map((g) => [g.id, Math.round(Number(tierAmounts[g.id] || "0") * 100)]),
+        )
+      : undefined,
+  };
+  const nUnits = totalUnits(biz.groups);
   const perUnitHint =
     kind === "perUnit"
-      ? `× ${biz.unitCount} ${biz.unitLabel}${biz.unitCount === 1 ? "" : "s"} = ${fmtMoney(
-          lineMonthlyCents(
-            { id: "x", name: "", category, amountCents: Math.round(Number(amount || "0") * 100), frequency, kind },
-            biz.unitCount,
-          ),
-        )}/mo`
+      ? `× ${plural(nUnits, biz.unitLabel)} = ${fmtMoney(lineMonthlyCents(previewLine, biz.groups))}/mo`
       : undefined;
 
   return (
@@ -132,29 +171,104 @@ function LineSheet({
           </div>
         </Field>
 
-        <div className="grid grid-cols-2 gap-3">
+        {kind === "perUnit" && multiGroup && (
+          <label className="flex cursor-pointer items-center justify-between rounded-lg border border-gray-200 bg-gray-50 px-3.5 py-2.5">
+            <span>
+              <span className="block text-sm font-semibold text-gray-900">
+                Different price per {biz.unitLabel} group
+              </span>
+              <span className="block text-xs text-gray-500">
+                {biz.groups.map((g) => g.label).join(" · ")}
+              </span>
+            </span>
+            <input
+              type="checkbox"
+              checked={tiered}
+              onChange={(e) => {
+                setTiered(e.target.checked);
+                setErr(null);
+                // carry the flat amount into empty tier fields as a starting point
+                if (e.target.checked && amount) {
+                  setTierAmounts((t) =>
+                    Object.fromEntries(biz.groups.map((g) => [g.id, t[g.id] || amount])),
+                  );
+                }
+              }}
+              className="h-5 w-5 accent-brand-600"
+            />
+          </label>
+        )}
+
+        {useTiers ? (
           <Field
-            label={kind === "perUnit" ? `Amount per ${biz.unitLabel}` : "Amount"}
+            label={`Amount per ${biz.unitLabel}, by group`}
             error={err && name.trim() ? err : undefined}
             hint={perUnitHint}
           >
-            <div className="relative">
-              <span className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-500">R</span>
-              <Input
-                className="pl-7"
-                type="number"
-                inputMode="decimal"
-                min={0}
-                step="0.01"
-                value={amount}
-                onChange={(e) => {
-                  setAmount(e.target.value);
-                  setErr(null);
-                }}
-                placeholder="0"
-              />
+            <div className="space-y-2">
+              {biz.groups.map((g) => (
+                <div key={g.id} className="flex items-center gap-3">
+                  <span className="w-28 shrink-0 truncate text-sm font-medium text-gray-700">
+                    {g.label || "All"}
+                    <span className="block text-xs font-normal text-gray-400">
+                      {plural(g.count, biz.unitLabel)}
+                    </span>
+                  </span>
+                  <div className="relative flex-1">
+                    <span className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-500">R</span>
+                    <Input
+                      className="pl-7"
+                      type="number"
+                      inputMode="decimal"
+                      min={0}
+                      step="0.01"
+                      value={tierAmounts[g.id] ?? ""}
+                      onChange={(e) => {
+                        setTierAmounts((t) => ({ ...t, [g.id]: e.target.value }));
+                        setErr(null);
+                      }}
+                      placeholder="0"
+                    />
+                  </div>
+                </div>
+              ))}
             </div>
           </Field>
+        ) : (
+          <div className="grid grid-cols-2 gap-3">
+            <Field
+              label={kind === "perUnit" ? `Amount per ${biz.unitLabel}` : "Amount"}
+              error={err && name.trim() ? err : undefined}
+              hint={perUnitHint}
+            >
+              <div className="relative">
+                <span className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-500">R</span>
+                <Input
+                  className="pl-7"
+                  type="number"
+                  inputMode="decimal"
+                  min={0}
+                  step="0.01"
+                  value={amount}
+                  onChange={(e) => {
+                    setAmount(e.target.value);
+                    setErr(null);
+                  }}
+                  placeholder="0"
+                />
+              </div>
+            </Field>
+            <Field label="Every">
+              <Select value={frequency} onChange={(e) => setFrequency(e.target.value as Frequency)}>
+                <option value="monthly">Month</option>
+                <option value="weekly">Week</option>
+                <option value="yearly">Year</option>
+              </Select>
+            </Field>
+          </div>
+        )}
+
+        {useTiers && (
           <Field label="Every">
             <Select value={frequency} onChange={(e) => setFrequency(e.target.value as Frequency)}>
               <option value="monthly">Month</option>
@@ -162,7 +276,7 @@ function LineSheet({
               <option value="yearly">Year</option>
             </Select>
           </Field>
-        </div>
+        )}
 
         <Field label="Category">
           <Select value={category} onChange={(e) => setCategory(e.target.value as Category)}>
@@ -185,8 +299,19 @@ function LineList({ biz, side }: { biz: Business; side: "income" | "expenses" })
   const { removeLine } = useStore();
   const [sheet, setSheet] = useState<{ editing: MoneyLine | null } | null>(null);
   const lines = biz[side];
-  const totalMo = lines.reduce((s, l) => s + lineMonthlyCents(l, biz.unitCount), 0);
+  const totalMo = lines.reduce((s, l) => s + lineMonthlyCents(l, biz.groups), 0);
   const isIncome = side === "income";
+
+  const freqShort = (f: Frequency) => (f === "monthly" ? "mo" : f === "weekly" ? "wk" : "yr");
+  const lineSub = (l: MoneyLine) => {
+    if (l.kind !== "perUnit") return `${fmtMoney(l.amountCents)}/${freqShort(l.frequency)} fixed`;
+    if (l.groupAmounts && biz.groups.length > 1) {
+      return biz.groups
+        .map((g) => `${g.label || "All"} ${fmtMoney(groupRateCents(l, g.id))}`)
+        .join(" · ") + `/${biz.unitLabel}/${freqShort(l.frequency)}`;
+    }
+    return `${fmtMoney(l.amountCents)}/${biz.unitLabel}/${freqShort(l.frequency)}`;
+  };
 
   return (
     <div className="space-y-4">
@@ -222,16 +347,20 @@ function LineList({ biz, side }: { biz: Business; side: "income" | "expenses" })
           {lines.map((l) => (
             <div key={l.id} className="flex items-center gap-3 px-4 py-3.5">
               <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-semibold text-gray-900">{l.name}</p>
-                <p className="mt-0.5 text-xs text-gray-500">
-                  {CATEGORY_LABELS[l.category]} ·{" "}
-                  {l.kind === "perUnit"
-                    ? `${fmtMoney(l.amountCents)}/${biz.unitLabel}/${l.frequency === "monthly" ? "mo" : l.frequency === "weekly" ? "wk" : "yr"}`
-                    : `${fmtMoney(l.amountCents)}/${l.frequency === "monthly" ? "mo" : l.frequency === "weekly" ? "wk" : "yr"} fixed`}
+                <p className="truncate text-sm font-semibold text-gray-900">
+                  {l.name}
+                  {l.groupAmounts && biz.groups.length > 1 && (
+                    <span className="ml-2 inline-flex items-center rounded-full border border-brand-200 bg-brand-50 px-1.5 py-0.5 align-middle text-[10px] font-medium text-brand-700">
+                      tiered
+                    </span>
+                  )}
+                </p>
+                <p className="mt-0.5 truncate text-xs text-gray-500">
+                  {CATEGORY_LABELS[l.category]} · {lineSub(l)}
                 </p>
               </div>
               <span className={`text-sm font-semibold tabular ${isIncome ? "text-profit-700" : "text-gray-900"}`}>
-                {fmtMoney(lineMonthlyCents(l, biz.unitCount))}/mo
+                {fmtMoney(lineMonthlyCents(l, biz.groups))}/mo
               </span>
               <div className="flex shrink-0 gap-0.5">
                 <button
@@ -263,22 +392,28 @@ function LineList({ biz, side }: { biz: Business; side: "income" | "expenses" })
 
 function Overview({ biz }: { biz: Business }) {
   const { updateBusiness } = useStore();
-  const [whatIf, setWhatIf] = useState<number | null>(null);
-  const n = whatIf ?? biz.unitCount;
-  const d = deriveBusiness(biz, n);
+  const [whatIfGroups, setWhatIfGroups] = useState<UnitGroup[] | null>(null);
+  const groups = whatIfGroups ?? biz.groups;
+  const n = totalUnits(groups);
+  const realN = totalUnits(biz.groups);
+  const isWhatIfMix =
+    whatIfGroups !== null &&
+    whatIfGroups.some((g, i) => g.count !== biz.groups[i]?.count);
+  const d = deriveBusiness(biz, groups);
   const real = deriveBusiness(biz);
 
   const donutData = useMemo(() => {
     const byCat = new Map<Category, number>();
     for (const l of biz.expenses) {
-      byCat.set(l.category, (byCat.get(l.category) ?? 0) + lineMonthlyCents(l, n));
+      byCat.set(l.category, (byCat.get(l.category) ?? 0) + lineMonthlyCents(l, groups));
     }
     return [...byCat.entries()]
       .map(([cat, cents]) => ({ name: CATEGORY_LABELS[cat], value: cents / 100 }))
       .sort((a, z) => z.value - a.value);
-  }, [biz.expenses, n]);
+  }, [biz.expenses, groups]);
 
-  const sliderMax = Math.max(biz.unitCount * 2, (d.breakEvenUnits ?? 0) + 5, 20);
+  const sliderMax = Math.max(realN * 2, (d.breakEvenUnits ?? 0) + 5, 20);
+  const mixNote = d.mixBased ? ` (at your current ${biz.unitLabel} mix)` : "";
 
   const breakEvenLine = (() => {
     if (biz.income.length === 0) return `Add an income line to see the break-even ${biz.unitLabel} count.`;
@@ -287,11 +422,11 @@ function Overview({ biz }: { biz: Business }) {
     if (d.breakEvenUnits === 0) return `Fixed income already covers all costs — profitable at any ${biz.unitLabel} count.`;
     const diff = n - d.breakEvenUnits;
     if (diff >= 0)
-      return `Break-even at ${plural(d.breakEvenUnits, biz.unitLabel)} — you have ${n}. In the black.`;
+      return `Break-even at ${plural(d.breakEvenUnits, biz.unitLabel)}${mixNote} — you have ${n}. In the black.`;
     const need = d.breakEvenUnits - n;
     return need === 1
-      ? `Break-even at ${plural(d.breakEvenUnits, biz.unitLabel)}, you have ${n} — one more ${biz.unitLabel} flips this green.`
-      : `Break-even at ${plural(d.breakEvenUnits, biz.unitLabel)}, you have ${n} — ${need} more to flip green.`;
+      ? `Break-even at ${plural(d.breakEvenUnits, biz.unitLabel)}${mixNote}, you have ${n} — one more ${biz.unitLabel} flips this green.`
+      : `Break-even at ${plural(d.breakEvenUnits, biz.unitLabel)}${mixNote}, you have ${n} — ${need} more to flip green.`;
   })();
 
   const kpis = [
@@ -324,7 +459,7 @@ function Overview({ biz }: { biz: Business }) {
           <div>
             <p className="text-sm font-medium text-gray-600">
               {d.status === "profit" ? "Making money" : d.status === "loss" ? "Losing money" : "Breaking even"}
-              {whatIf !== null && whatIf !== biz.unitCount && " (what-if)"}
+              {isWhatIfMix && " (what-if)"}
             </p>
             <p
               className={`mt-1 text-3xl font-bold tracking-tight tabular ${d.status === "profit" ? "text-profit-700" : d.status === "loss" ? "text-loss-700" : "text-warn-700"}`}
@@ -358,17 +493,17 @@ function Overview({ biz }: { biz: Business }) {
           <h3 className="flex items-center gap-2 text-sm font-semibold text-gray-900">
             <Icon name="sliders" size={16} className="text-brand-600" /> What if…
           </h3>
-          {whatIf !== null && whatIf !== biz.unitCount && (
+          {isWhatIfMix && (
             <div className="flex gap-2">
-              <Button size="sm" variant="ghost" onClick={() => setWhatIf(null)}>
+              <Button size="sm" variant="ghost" onClick={() => setWhatIfGroups(null)}>
                 Reset
               </Button>
               <Button
                 size="sm"
                 variant="secondary"
                 onClick={() => {
-                  updateBusiness(biz.id, { unitCount: whatIf });
-                  setWhatIf(null);
+                  updateBusiness(biz.id, { groups });
+                  setWhatIfGroups(null);
                 }}
               >
                 <Icon name="check" size={14} /> Make it real
@@ -387,7 +522,7 @@ function Overview({ biz }: { biz: Business }) {
             max={sliderMax}
             step={1}
             value={n}
-            onChange={(e) => setWhatIf(Number(e.target.value))}
+            onChange={(e) => setWhatIfGroups(scaleGroupCounts(groups, Number(e.target.value)))}
             aria-label={`what-if ${biz.unitLabel} count`}
           />
           <div className="w-20 shrink-0 text-right">
@@ -405,12 +540,52 @@ function Overview({ biz }: { biz: Business }) {
             </span>
           </div>
         )}
-        {whatIf !== null && whatIf !== biz.unitCount && (
+        {groups.length > 1 && (
+          <div className="mt-3 space-y-2 border-t border-gray-100 pt-3">
+            {groups.map((g, i) => (
+              <div key={g.id} className="flex items-center justify-between gap-3">
+                <span className="min-w-0 truncate text-sm text-gray-600">
+                  {g.label || "All"}
+                  <span className="ml-1.5 text-xs text-gray-400">
+                    (now {biz.groups[i]?.count ?? 0})
+                  </span>
+                </span>
+                <div className="flex items-center gap-2">
+                  <button
+                    aria-label={`fewer ${g.label}`}
+                    onClick={() =>
+                      setWhatIfGroups(
+                        groups.map((x) =>
+                          x.id === g.id ? { ...x, count: Math.max(0, x.count - 1) } : x,
+                        ),
+                      )
+                    }
+                    className="flex h-8 w-8 items-center justify-center rounded-lg border border-gray-300 bg-white text-gray-600 shadow-xs hover:bg-gray-50"
+                  >
+                    −
+                  </button>
+                  <span className="w-8 text-center text-sm font-bold text-gray-900 tabular">{g.count}</span>
+                  <button
+                    aria-label={`more ${g.label}`}
+                    onClick={() =>
+                      setWhatIfGroups(groups.map((x) => (x.id === g.id ? { ...x, count: x.count + 1 } : x)))
+                    }
+                    className="flex h-8 w-8 items-center justify-center rounded-lg border border-gray-300 bg-white text-gray-600 shadow-xs hover:bg-gray-50"
+                  >
+                    +
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+        {isWhatIfMix && (
           <p className="mt-2 text-sm text-gray-600 tabular">
-            At {plural(whatIf, biz.unitLabel)}:{" "}
+            At {plural(n, biz.unitLabel)}
+            {groups.length > 1 && ` (${groups.map((g) => `${g.count} ${g.label || "all"}`).join(", ")})`}:{" "}
             <strong className={d.netMo >= 0 ? "text-profit-700" : "text-loss-700"}>{fmtSigned(d.netMo)}/mo</strong>{" "}
             <span className="text-gray-400">
-              (now: {fmtSigned(real.netMo)}/mo at {biz.unitCount})
+              (now: {fmtSigned(real.netMo)}/mo at {realN})
             </span>
           </p>
         )}
@@ -495,15 +670,37 @@ function Settings({ biz }: { biz: Business }) {
           <p>
             Unit <strong className="float-right font-semibold text-gray-900">{biz.unitLabel}</strong>
           </p>
-          <p>
-            Count <strong className="float-right font-semibold text-gray-900 tabular">{biz.unitCount}</strong>
-          </p>
+          {biz.groups.length === 1 ? (
+            <p>
+              Count{" "}
+              <strong className="float-right font-semibold text-gray-900 tabular">
+                {biz.groups[0].count}
+              </strong>
+            </p>
+          ) : (
+            <>
+              {biz.groups.map((g) => (
+                <p key={g.id}>
+                  {g.label || "All"}{" "}
+                  <strong className="float-right font-semibold text-gray-900 tabular">
+                    {plural(g.count, biz.unitLabel)}
+                  </strong>
+                </p>
+              ))}
+              <p>
+                Total{" "}
+                <strong className="float-right font-semibold text-gray-900 tabular">
+                  {plural(totalUnits(biz.groups), biz.unitLabel)}
+                </strong>
+              </p>
+            </>
+          )}
           <p>
             Currency <strong className="float-right font-semibold text-gray-900">ZAR (R)</strong>
           </p>
         </div>
         <Button variant="secondary" className="mt-4 w-full" onClick={() => setEditOpen(true)}>
-          <Icon name="edit" size={16} /> Edit name, icon, unit &amp; count
+          <Icon name="edit" size={16} /> Edit name, icon, unit, groups &amp; counts
         </Button>
       </Card>
 
@@ -629,8 +826,11 @@ export function BusinessDetail() {
           </span>
           <div className="min-w-0">
             <h1 className="truncate text-xl font-bold tracking-tight text-gray-900">{biz.name}</h1>
-            <p className="text-sm text-gray-500">
-              {plural(biz.unitCount, biz.unitLabel)} · estimated monthly
+            <p className="truncate text-sm text-gray-500">
+              {plural(totalUnits(biz.groups), biz.unitLabel)}
+              {biz.groups.length > 1 &&
+                ` (${biz.groups.map((g) => `${g.count} ${g.label}`).join(" · ")})`}{" "}
+              · estimated monthly
             </p>
           </div>
         </div>

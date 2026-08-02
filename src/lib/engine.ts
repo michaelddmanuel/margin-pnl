@@ -1,8 +1,18 @@
-import type { Business, Frequency, MoneyLine } from "./types";
+import type { Business, Frequency, MoneyLine, UnitGroup } from "./types";
 
-/** cents/month for one line at a given unit count — integer math, rounded once */
-export function lineMonthlyCents(line: MoneyLine, unitCount: number): number {
-  const base = line.kind === "perUnit" ? line.amountCents * unitCount : line.amountCents;
+export function totalUnits(groups: UnitGroup[]): number {
+  return groups.reduce((s, g) => s + g.count, 0);
+}
+
+/** rate for one unit of a given group (falls back to the line's flat amount) */
+export function groupRateCents(line: MoneyLine, groupId: string): number {
+  return line.groupAmounts?.[groupId] ?? line.amountCents;
+}
+
+/** cents/month for one line at a given group mix — integer math, rounded once */
+export function lineMonthlyCents(line: MoneyLine, groups: UnitGroup[]): number {
+  if (line.kind === "fixed") return normalizeToMonthlyCents(line.amountCents, line.frequency);
+  const base = groups.reduce((s, g) => s + groupRateCents(line, g.id) * g.count, 0);
   return normalizeToMonthlyCents(base, line.frequency);
 }
 
@@ -25,34 +35,47 @@ export interface Derived {
   marginPct: number | null;
   /** units needed to break even; null = no per-unit path to profit */
   breakEvenUnits: number | null;
-  /** contribution per unit in cents (income/unit − variable cost/unit) */
-  unitContributionMo: number;
+  /** avg contribution per unit at the current mix, in cents */
+  unitContributionMo: number | null;
   fixedExpensesMo: number;
+  /** break-even assumes the current group mix (multi-group businesses) */
+  mixBased: boolean;
+  totalUnits: number;
   status: "profit" | "loss" | "breakeven";
 }
 
-export function deriveBusiness(b: Business, unitCountOverride?: number): Derived {
-  const n = unitCountOverride ?? b.unitCount;
-  const revenueMo = b.income.reduce((s, l) => s + lineMonthlyCents(l, n), 0);
-  const expensesMo = b.expenses.reduce((s, l) => s + lineMonthlyCents(l, n), 0);
+export function deriveBusiness(b: Business, groupsOverride?: UnitGroup[]): Derived {
+  const groups = groupsOverride ?? b.groups;
+  const n = totalUnits(groups);
+  const revenueMo = b.income.reduce((s, l) => s + lineMonthlyCents(l, groups), 0);
+  const expensesMo = b.expenses.reduce((s, l) => s + lineMonthlyCents(l, groups), 0);
   const netMo = revenueMo - expensesMo;
 
-  const incomePerUnitMo = b.income
+  const perUnitIncomeTotalMo = b.income
     .filter((l) => l.kind === "perUnit")
-    .reduce((s, l) => s + normalizeToMonthlyCents(l.amountCents, l.frequency), 0);
-  const variablePerUnitMo = b.expenses
+    .reduce((s, l) => s + lineMonthlyCents(l, groups), 0);
+  const perUnitExpenseTotalMo = b.expenses
     .filter((l) => l.kind === "perUnit")
-    .reduce((s, l) => s + normalizeToMonthlyCents(l.amountCents, l.frequency), 0);
-  const fixedExpensesMo = b.expenses
-    .filter((l) => l.kind === "fixed")
-    .reduce((s, l) => s + normalizeToMonthlyCents(l.amountCents, l.frequency), 0);
-  const fixedIncomeMo = revenueMo - incomePerUnitMo * n;
+    .reduce((s, l) => s + lineMonthlyCents(l, groups), 0);
+  const fixedExpensesMo = expensesMo - perUnitExpenseTotalMo;
+  const fixedIncomeMo = revenueMo - perUnitIncomeTotalMo;
 
-  const unitContributionMo = incomePerUnitMo - variablePerUnitMo;
-  // fixed income offsets fixed cost before units have to cover it
+  // avg contribution per unit at this mix; for an empty single-group biz use raw rates
+  let unitContributionMo: number | null = null;
+  if (n > 0) {
+    unitContributionMo = (perUnitIncomeTotalMo - perUnitExpenseTotalMo) / n;
+  } else if (groups.length === 1) {
+    const gid = groups[0].id;
+    const rate = (lines: MoneyLine[]) =>
+      lines
+        .filter((l) => l.kind === "perUnit")
+        .reduce((s, l) => s + normalizeToMonthlyCents(groupRateCents(l, gid), l.frequency), 0);
+    unitContributionMo = rate(b.income) - rate(b.expenses);
+  }
+
   const gap = fixedExpensesMo - fixedIncomeMo;
   let breakEvenUnits: number | null = null;
-  if (unitContributionMo > 0) {
+  if (unitContributionMo !== null && unitContributionMo > 0) {
     breakEvenUnits = Math.max(0, Math.ceil(gap / unitContributionMo));
   } else if (gap <= 0) {
     breakEvenUnits = 0; // fixed income already covers everything
@@ -64,8 +87,10 @@ export function deriveBusiness(b: Business, unitCountOverride?: number): Derived
     netMo,
     marginPct: revenueMo > 0 ? (netMo / revenueMo) * 100 : null,
     breakEvenUnits,
-    unitContributionMo,
+    unitContributionMo: unitContributionMo === null ? null : Math.round(unitContributionMo),
     fixedExpensesMo,
+    mixBased: groups.length > 1,
+    totalUnits: n,
     status: netMo > 0 ? "profit" : netMo < 0 ? "loss" : "breakeven",
   };
 }
@@ -102,4 +127,28 @@ export function fmtPct(p: number | null): string {
 
 export function plural(n: number, label: string): string {
   return `${n} ${label}${n === 1 ? "" : "s"}`;
+}
+
+/** rescale group counts to a new total, preserving the mix (largest-remainder rounding) */
+export function scaleGroupCounts(groups: UnitGroup[], newTotal: number): UnitGroup[] {
+  const cur = totalUnits(groups);
+  if (groups.length === 1) return [{ ...groups[0], count: newTotal }];
+  let floors: number[];
+  let fracs: { i: number; frac: number }[];
+  if (cur === 0) {
+    const even = newTotal / groups.length;
+    floors = groups.map(() => Math.floor(even));
+    fracs = groups.map((_, i) => ({ i, frac: even - Math.floor(even) }));
+  } else {
+    const raw = groups.map((g) => (g.count * newTotal) / cur);
+    floors = raw.map(Math.floor);
+    fracs = raw.map((r, i) => ({ i, frac: r - Math.floor(r) }));
+  }
+  let rem = newTotal - floors.reduce((a, b) => a + b, 0);
+  for (const { i } of fracs.sort((a, z) => z.frac - a.frac)) {
+    if (rem <= 0) break;
+    floors[i] += 1;
+    rem -= 1;
+  }
+  return groups.map((g, i) => ({ ...g, count: floors[i] }));
 }

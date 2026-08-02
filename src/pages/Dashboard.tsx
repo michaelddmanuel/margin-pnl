@@ -2,9 +2,10 @@ import { useMemo, useState, type FormEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Icon } from "../components/Icon";
 import { Badge, Button, Card, EmptyState, Field, Input, Sheet } from "../components/ui";
-import { deriveBusiness, fmtMoney, fmtSigned, plural } from "../lib/engine";
+import { deriveBusiness, fmtMoney, fmtSigned, plural, totalUnits } from "../lib/engine";
+import { newId } from "../lib/seed";
 import { signOut, useStore } from "../lib/store";
-import { BUSINESS_COLORS, BUSINESS_ICONS, type Business } from "../lib/types";
+import { BUSINESS_COLORS, BUSINESS_ICONS, type Business, type UnitGroup } from "../lib/types";
 
 export function AppHeader() {
   const nav = useNavigate();
@@ -51,23 +52,31 @@ export function BusinessModal({
   const [icon, setIcon] = useState(editing?.icon ?? BUSINESS_ICONS[0]);
   const [color, setColor] = useState(editing?.color ?? BUSINESS_COLORS[0]);
   const [unitLabel, setUnitLabel] = useState(editing?.unitLabel ?? "");
-  const [unitCount, setUnitCount] = useState(editing ? String(editing.unitCount) : "");
+  const [rows, setRows] = useState<{ id: string; label: string; count: string }[]>(
+    editing
+      ? editing.groups.map((g) => ({ id: g.id, label: g.label, count: String(g.count) }))
+      : [{ id: newId("grp"), label: "", count: "" }],
+  );
   const [err, setErr] = useState<string | null>(null);
 
   function submit(e: FormEvent) {
     e.preventDefault();
     const n = name.trim();
     const u = unitLabel.trim().toLowerCase() || "unit";
-    const c = Math.max(0, Math.round(Number(unitCount) || 0));
     if (!n) {
       setErr("Give it a name.");
       return;
     }
+    const groups: UnitGroup[] = rows.map((r, i) => ({
+      id: r.id,
+      label: r.label.trim() || (rows.length > 1 ? `Tier ${i + 1}` : ""),
+      count: Math.max(0, Math.round(Number(r.count) || 0)),
+    }));
     if (editing) {
-      updateBusiness(editing.id, { name: n, icon, color, unitLabel: u, unitCount: c });
+      updateBusiness(editing.id, { name: n, icon, color, unitLabel: u, groups });
       onClose();
     } else {
-      const biz = addBusiness({ name: n, icon, color, unitLabel: u, unitCount: c });
+      const biz = addBusiness({ name: n, icon, color, unitLabel: u, groups });
       onClose();
       nav(`/app/b/${biz.id}`);
     }
@@ -137,25 +146,67 @@ export function BusinessModal({
           </div>
         </Field>
 
-        <div className="grid grid-cols-2 gap-3">
-          <Field label="Unit" hint='"kid", "client", "order"…'>
-            <Input
-              value={unitLabel}
-              onChange={(e) => setUnitLabel(e.target.value)}
-              placeholder="kid"
-            />
-          </Field>
-          <Field label="How many right now?">
-            <Input
-              type="number"
-              inputMode="numeric"
-              min={0}
-              value={unitCount}
-              onChange={(e) => setUnitCount(e.target.value)}
-              placeholder="12"
-            />
-          </Field>
-        </div>
+        <Field label="Unit" hint='"kid", "client", "order"…'>
+          <Input
+            value={unitLabel}
+            onChange={(e) => setUnitLabel(e.target.value)}
+            placeholder="kid"
+          />
+        </Field>
+
+        <Field
+          label={rows.length > 1 ? `${unitLabel.trim() || "Unit"} groups & counts` : "How many right now?"}
+          hint={
+            rows.length > 1
+              ? "Each group can have its own price on per-unit lines (e.g. by age)."
+              : undefined
+          }
+        >
+          <div className="space-y-2">
+            {rows.map((r, i) => (
+              <div key={r.id} className="flex items-center gap-2">
+                {rows.length > 1 && (
+                  <Input
+                    value={r.label}
+                    onChange={(e) =>
+                      setRows((rs) => rs.map((x) => (x.id === r.id ? { ...x, label: e.target.value } : x)))
+                    }
+                    placeholder={i === 0 ? "Under 3" : "Ages 3–6"}
+                    className="flex-1"
+                  />
+                )}
+                <Input
+                  type="number"
+                  inputMode="numeric"
+                  min={0}
+                  value={r.count}
+                  onChange={(e) =>
+                    setRows((rs) => rs.map((x) => (x.id === r.id ? { ...x, count: e.target.value } : x)))
+                  }
+                  placeholder="12"
+                  className={rows.length > 1 ? "w-24" : ""}
+                />
+                {rows.length > 1 && (
+                  <button
+                    type="button"
+                    aria-label="Remove group"
+                    onClick={() => setRows((rs) => rs.filter((x) => x.id !== r.id))}
+                    className="rounded-lg p-2 text-gray-400 hover:bg-loss-50 hover:text-loss-600"
+                  >
+                    <Icon name="trash" size={16} />
+                  </button>
+                )}
+              </div>
+            ))}
+            <button
+              type="button"
+              onClick={() => setRows((rs) => [...rs, { id: newId("grp"), label: "", count: "" }])}
+              className="flex items-center gap-1.5 text-sm font-semibold text-brand-600 hover:text-brand-700"
+            >
+              <Icon name="plus" size={16} /> Add {unitLabel.trim() || "unit"} group (different price tier)
+            </button>
+          </div>
+        </Field>
         {/* allow Enter key to submit */}
         <button type="submit" className="hidden" />
       </form>
@@ -246,7 +297,11 @@ function BizCard({ biz }: { biz: Business }) {
           </span>
           <div className="min-w-0">
             <h3 className="truncate text-base font-semibold text-gray-900">{biz.name}</h3>
-            <p className="text-sm text-gray-500">{plural(biz.unitCount, biz.unitLabel)}</p>
+            <p className="truncate text-sm text-gray-500">
+              {plural(totalUnits(biz.groups), biz.unitLabel)}
+              {biz.groups.length > 1 &&
+                ` · ${biz.groups.map((g) => `${g.count} ${g.label}`).join(" · ")}`}
+            </p>
           </div>
         </div>
         <div className="relative flex shrink-0 items-center gap-1">

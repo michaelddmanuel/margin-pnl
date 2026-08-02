@@ -3,6 +3,8 @@ import type { Business } from "./types";
 const id = (p: string) => `${p}_${Math.random().toString(36).slice(2, 9)}`;
 
 export function makeSeedBusinesses(): Business[] {
+  const under3 = id("grp");
+  const ages36 = id("grp");
   return [
     {
       id: id("biz"),
@@ -10,7 +12,10 @@ export function makeSeedBusinesses(): Business[] {
       icon: "🏠",
       color: "#7f56d9",
       unitLabel: "kid",
-      unitCount: 12,
+      groups: [
+        { id: under3, label: "Under 3", count: 4 },
+        { id: ages36, label: "Ages 3–6", count: 8 },
+      ],
       income: [
         {
           id: id("ln"),
@@ -19,6 +24,7 @@ export function makeSeedBusinesses(): Business[] {
           amountCents: 80000,
           frequency: "monthly",
           kind: "perUnit",
+          groupAmounts: { [under3]: 95000, [ages36]: 72500 },
         },
       ],
       expenses: [
@@ -71,7 +77,7 @@ export function makeSeedBusinesses(): Business[] {
       icon: "🧹",
       color: "#2e90fa",
       unitLabel: "client",
-      unitCount: 8,
+      groups: [{ id: id("grp"), label: "", count: 8 }],
       income: [
         {
           id: id("ln"),
