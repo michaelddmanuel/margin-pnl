@@ -10,7 +10,7 @@ export function AppHeader() {
   const nav = useNavigate();
   return (
     <header className="sticky top-0 z-40 border-b border-gray-200 bg-white/90 backdrop-blur">
-      <div className="mx-auto flex max-w-5xl items-center justify-between px-5 py-3">
+      <div className="flex w-full items-center justify-between px-5 py-3 sm:px-8">
         <Link to="/app" className="flex items-center gap-2">
           <svg width={28} height={28} viewBox="0 0 64 64" aria-hidden>
             <rect width="64" height="64" rx="14" fill="#7f56d9" />
@@ -163,17 +163,80 @@ export function BusinessModal({
   );
 }
 
+/* ---------------- delete confirm (shared: dashboard card menu + settings tab) ---------------- */
+
+export function DeleteBusinessSheet({
+  biz,
+  open,
+  onClose,
+  afterDelete,
+}: {
+  biz: Business;
+  open: boolean;
+  onClose: () => void;
+  afterDelete?: () => void;
+}) {
+  const { removeBusiness } = useStore();
+  const [text, setText] = useState("");
+  const close = () => {
+    setText("");
+    onClose();
+  };
+  return (
+    <Sheet
+      open={open}
+      onClose={close}
+      title="Delete business?"
+      footer={
+        <div className="flex gap-3">
+          <Button variant="secondary" className="flex-1" onClick={close}>
+            Keep it
+          </Button>
+          <Button
+            variant="danger"
+            className="flex-1"
+            disabled={text.trim().toLowerCase() !== biz.name.toLowerCase()}
+            onClick={() => {
+              removeBusiness(biz.id);
+              close();
+              afterDelete?.();
+            }}
+          >
+            Delete forever
+          </Button>
+        </div>
+      }
+    >
+      <p className="text-sm text-gray-600">
+        This permanently deletes <strong className="text-gray-900">{biz.name}</strong> and all{" "}
+        {biz.income.length + biz.expenses.length} of its money lines.
+      </p>
+      <Field label={`Type "${biz.name}" to confirm`}>
+        <Input
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          placeholder={biz.name}
+          className="mt-3"
+        />
+      </Field>
+    </Sheet>
+  );
+}
+
 /* ---------------- Business card ---------------- */
 
 function BizCard({ biz }: { biz: Business }) {
   const nav = useNavigate();
   const d = deriveBusiness(biz);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
   const total = d.revenueMo + d.expensesMo;
   const revPct = total > 0 ? (d.revenueMo / total) * 100 : 50;
 
   return (
     <Card className="p-4 sm:p-5" onClick={() => nav(`/app/b/${biz.id}`)}>
-      <div className="flex items-start justify-between gap-3">
+      <div className="flex items-start justify-between gap-2">
         <div className="flex min-w-0 items-center gap-3">
           <span
             className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-xl"
@@ -186,14 +249,59 @@ function BizCard({ biz }: { biz: Business }) {
             <p className="text-sm text-gray-500">{plural(biz.unitCount, biz.unitLabel)}</p>
           </div>
         </div>
-        <Badge tone={d.status === "profit" ? "profit" : d.status === "loss" ? "loss" : "warn"}>
-          {d.status === "profit" ? (
-            <Icon name="trend-up" size={12} />
-          ) : d.status === "loss" ? (
-            <Icon name="trend-down" size={12} />
-          ) : null}
-          {fmtSigned(d.netMo)}/mo
-        </Badge>
+        <div className="relative flex shrink-0 items-center gap-1">
+          <Badge tone={d.status === "profit" ? "profit" : d.status === "loss" ? "loss" : "warn"}>
+            {d.status === "profit" ? (
+              <Icon name="trend-up" size={12} />
+            ) : d.status === "loss" ? (
+              <Icon name="trend-down" size={12} />
+            ) : null}
+            {fmtSigned(d.netMo)}/mo
+          </Badge>
+          <button
+            aria-label={`Menu for ${biz.name}`}
+            onClick={(e) => {
+              e.stopPropagation();
+              setMenuOpen((v) => !v);
+            }}
+            className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600"
+          >
+            <Icon name="dots" size={18} />
+          </button>
+          {menuOpen && (
+            <>
+              <div
+                className="fixed inset-0 z-10"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setMenuOpen(false);
+                }}
+              />
+              <div className="anim-pop absolute right-0 top-9 z-20 w-44 overflow-hidden rounded-lg border border-gray-200 bg-white py-1 shadow-lg">
+                <button
+                  className="flex w-full items-center gap-2 px-3.5 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setMenuOpen(false);
+                    setEditOpen(true);
+                  }}
+                >
+                  <Icon name="edit" size={16} /> Edit business
+                </button>
+                <button
+                  className="flex w-full items-center gap-2 px-3.5 py-2.5 text-sm font-medium text-loss-600 hover:bg-loss-50"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setMenuOpen(false);
+                    setDeleteOpen(true);
+                  }}
+                >
+                  <Icon name="trash" size={16} /> Delete…
+                </button>
+              </div>
+            </>
+          )}
+        </div>
       </div>
 
       <div className="mt-4 flex h-2 overflow-hidden rounded-full bg-gray-100">
@@ -208,6 +316,14 @@ function BizCard({ biz }: { biz: Business }) {
           Out <strong className="font-semibold text-gray-700">{fmtMoney(d.expensesMo)}</strong>
         </span>
       </div>
+
+      {/* modals live inside the clickable card — block bubbling to nav */}
+      {(editOpen || deleteOpen) && (
+        <div onClick={(e) => e.stopPropagation()} className="cursor-default">
+          {editOpen && <BusinessModal open onClose={() => setEditOpen(false)} editing={biz} />}
+          <DeleteBusinessSheet biz={biz} open={deleteOpen} onClose={() => setDeleteOpen(false)} />
+        </div>
+      )}
     </Card>
   );
 }
@@ -229,7 +345,7 @@ export function Dashboard() {
   return (
     <div className="min-h-dvh bg-gray-50 pb-24">
       <AppHeader />
-      <main className="mx-auto max-w-5xl px-5 pt-6">
+      <main className="w-full px-5 pt-6 sm:px-8">
         <div className="flex items-end justify-between gap-3">
           <div>
             <h1 className="text-xl font-bold tracking-tight text-gray-900 sm:text-2xl">Portfolio</h1>
@@ -246,7 +362,7 @@ export function Dashboard() {
         </div>
 
         {businesses.length > 0 && (
-          <div className="no-scrollbar -mx-5 mt-5 flex gap-3 overflow-x-auto px-5 sm:mx-0 sm:grid sm:grid-cols-4 sm:px-0">
+          <div className="no-scrollbar -mx-5 mt-5 flex gap-3 overflow-x-auto px-5 sm:mx-0 sm:grid sm:grid-cols-2 sm:px-0 lg:grid-cols-4">
             <Card className="min-w-[150px] flex-1 p-4">
               <p className="text-xs font-medium text-gray-500">Total net / mo</p>
               <p
@@ -289,7 +405,7 @@ export function Dashboard() {
           </div>
         )}
 
-        <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
           {portfolio.derived.map(({ b }) => (
             <BizCard key={b.id} biz={b} />
           ))}

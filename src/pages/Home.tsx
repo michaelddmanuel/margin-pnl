@@ -22,7 +22,7 @@ const features = [
   {
     icon: "coins" as const,
     title: "Per-kid, per-client costs",
-    body: "Every line is fixed (\"mortgage $2,400/mo\") or per-unit (\"food $150 per kid\"). Margin multiplies, normalizes to monthly, and does the arithmetic that matters.",
+    body: "Every line is fixed (\"rent R2 400/mo\") or per-unit (\"food R150 per kid\"). Margin multiplies, normalizes to monthly, and does the arithmetic that matters.",
   },
   {
     icon: "target" as const,
@@ -77,11 +77,11 @@ export function Home() {
                 <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-brand-50 text-lg">🏠</span>
                 <div>
                   <p className="text-sm font-semibold text-gray-900">Sunshine Day Care</p>
-                  <p className="text-xs text-gray-500">12 kids · $800/kid tuition</p>
+                  <p className="text-xs text-gray-500">12 kids · R800/kid tuition</p>
                 </div>
               </div>
               <span className="rounded-full border border-profit-200 bg-profit-50 px-2.5 py-0.5 text-sm font-semibold text-profit-700 tabular">
-                +$1,750/mo
+                +R1 750/mo
               </span>
             </div>
             <div className="mt-4 flex h-2 overflow-hidden rounded-full bg-gray-100">

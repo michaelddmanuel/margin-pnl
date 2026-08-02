@@ -139,7 +139,7 @@ function LineSheet({
             hint={perUnitHint}
           >
             <div className="relative">
-              <span className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-500">$</span>
+              <span className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-500">R</span>
               <Input
                 className="pl-7"
                 type="number"
@@ -499,7 +499,7 @@ function Settings({ biz }: { biz: Business }) {
             Count <strong className="float-right font-semibold text-gray-900 tabular">{biz.unitCount}</strong>
           </p>
           <p>
-            Currency <strong className="float-right font-semibold text-gray-900">USD</strong>
+            Currency <strong className="float-right font-semibold text-gray-900">ZAR (R)</strong>
           </p>
         </div>
         <Button variant="secondary" className="mt-4 w-full" onClick={() => setEditOpen(true)}>
@@ -612,7 +612,7 @@ export function BusinessDetail() {
   return (
     <div className="min-h-dvh bg-gray-50 pb-16">
       <AppHeader />
-      <main className="mx-auto max-w-3xl px-5 pt-5">
+      <main className="w-full px-5 pt-5 sm:px-8">
         <button
           onClick={() => nav("/app")}
           className="flex items-center gap-1 text-sm font-medium text-gray-500 hover:text-gray-700"

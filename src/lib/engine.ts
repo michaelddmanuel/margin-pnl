@@ -70,26 +70,26 @@ export function deriveBusiness(b: Business, unitCountOverride?: number): Derived
   };
 }
 
-const usd = new Intl.NumberFormat("en-US", {
+const zar = new Intl.NumberFormat("en-ZA", {
   style: "currency",
-  currency: "USD",
+  currency: "ZAR",
   maximumFractionDigits: 0,
 });
-const usdCents = new Intl.NumberFormat("en-US", {
+const zarCents = new Intl.NumberFormat("en-ZA", {
   style: "currency",
-  currency: "USD",
+  currency: "ZAR",
   minimumFractionDigits: 2,
 });
 
-/** whole dollars, e.g. $9,600 */
+/** whole rand, e.g. R9 600 */
 export function fmtMoney(cents: number): string {
-  const dollars = cents / 100;
-  return Number.isInteger(dollars) || Math.abs(dollars) >= 1000
-    ? usd.format(Math.round(dollars))
-    : usdCents.format(dollars);
+  const rand = cents / 100;
+  return Number.isInteger(rand) || Math.abs(rand) >= 1000
+    ? zar.format(Math.round(rand))
+    : zarCents.format(rand);
 }
 
-/** signed, e.g. +$1,750 / −$250 */
+/** signed, e.g. +R1 750 / −R250 */
 export function fmtSigned(cents: number): string {
   const s = fmtMoney(Math.abs(cents));
   return cents > 0 ? `+${s}` : cents < 0 ? `−${s}` : s;
