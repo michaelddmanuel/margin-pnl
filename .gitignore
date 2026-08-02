@@ -3,3 +3,5 @@ dist
 .DS_Store
 *.local
 *.log
+# recovered personal business data — never commit
+KIMBEEZ-RECOVERED.*
