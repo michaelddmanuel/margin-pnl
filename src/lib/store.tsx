@@ -11,6 +11,10 @@ import { makeSeedBusinesses, newId } from "./seed";
 
 const KEY = "margin.v1";
 const AUTH_KEY = "margin.auth";
+/** bump when the demo seed changes: untouched demo data self-refreshes, user edits are kept */
+const SEED_VERSION = "3";
+const SEED_KEY = "margin.seedv";
+const TOUCHED_KEY = "margin.touched";
 
 /** older saves stored a flat unitCount — wrap it into a single default group */
 function migrate(parsed: StoreShape): StoreShape {
@@ -25,19 +29,33 @@ function migrate(parsed: StoreShape): StoreShape {
   };
 }
 
+function seedStorage(): StoreShape {
+  const seeded = { businesses: makeSeedBusinesses() };
+  localStorage.setItem(KEY, JSON.stringify(seeded));
+  localStorage.setItem(SEED_KEY, SEED_VERSION);
+  localStorage.removeItem(TOUCHED_KEY);
+  return seeded;
+}
+
+export function markTouched(): void {
+  localStorage.setItem(TOUCHED_KEY, "1");
+}
+
 function load(): StoreShape {
   try {
     const raw = localStorage.getItem(KEY);
     if (raw) {
+      // pure demo data from an older deploy → refresh to the current seed
+      const untouched = localStorage.getItem(TOUCHED_KEY) !== "1";
+      const stale = localStorage.getItem(SEED_KEY) !== SEED_VERSION;
+      if (untouched && stale) return seedStorage();
       const parsed = JSON.parse(raw) as StoreShape;
       if (Array.isArray(parsed.businesses)) return migrate(parsed);
     }
   } catch {
     // fall through to seed
   }
-  const seeded = { businesses: makeSeedBusinesses() };
-  localStorage.setItem(KEY, JSON.stringify(seeded));
-  return seeded;
+  return seedStorage();
 }
 
 interface StoreApi {
@@ -63,7 +81,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   }, [state]);
 
   const api = useMemo<StoreApi>(() => {
-    const mutate = (fn: (s: StoreShape) => StoreShape) => setState((s) => fn(s));
+    const mutate = (fn: (s: StoreShape) => StoreShape) => {
+      markTouched();
+      setState((s) => fn(s));
+    };
     const mapBiz = (s: StoreShape, id: string, fn: (b: Business) => Business): StoreShape => ({
       businesses: s.businesses.map((b) => (b.id === id ? fn(b) : b)),
     });
@@ -114,6 +135,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       },
       resetDemo() {
         const seeded = { businesses: makeSeedBusinesses() };
+        localStorage.setItem(SEED_KEY, SEED_VERSION);
+        localStorage.removeItem(TOUCHED_KEY);
         setState(seeded);
       },
     };
