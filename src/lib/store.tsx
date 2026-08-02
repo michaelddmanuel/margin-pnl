@@ -48,6 +48,8 @@ interface StoreApi {
   addLine: (bizId: string, side: "income" | "expenses", line: Omit<MoneyLine, "id">) => void;
   updateLine: (bizId: string, side: "income" | "expenses", line: MoneyLine) => void;
   removeLine: (bizId: string, side: "income" | "expenses", lineId: string) => void;
+  /** replace businesses with matching names, append the rest */
+  importBusinesses: (incoming: Business[]) => void;
   resetDemo: () => void;
 }
 
@@ -102,6 +104,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         mutate((s) =>
           mapBiz(s, bizId, (b) => ({ ...b, [side]: b[side].filter((l) => l.id !== lineId) })),
         );
+      },
+      importBusinesses(incoming) {
+        mutate((s) => {
+          const names = new Set(incoming.map((i) => i.name.trim().toLowerCase()));
+          const kept = s.businesses.filter((b) => !names.has(b.name.trim().toLowerCase()));
+          return { businesses: [...kept, ...incoming] };
+        });
       },
       resetDemo() {
         const seeded = { businesses: makeSeedBusinesses() };

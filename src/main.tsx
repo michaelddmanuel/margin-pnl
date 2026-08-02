@@ -7,6 +7,7 @@ import { Home } from "./pages/Home";
 import { Login } from "./pages/Login";
 import { Dashboard } from "./pages/Dashboard";
 import { BusinessDetail } from "./pages/BusinessDetail";
+import { PortfolioSheet } from "./pages/PortfolioSheet";
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const loc = useLocation();
@@ -26,6 +27,14 @@ createRoot(document.getElementById("root")!).render(
             element={
               <RequireAuth>
                 <Dashboard />
+              </RequireAuth>
+            }
+          />
+          <Route
+            path="/app/sheet"
+            element={
+              <RequireAuth>
+                <PortfolioSheet />
               </RequireAuth>
             }
           />

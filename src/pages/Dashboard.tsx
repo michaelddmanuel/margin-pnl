@@ -387,6 +387,7 @@ function BizCard({ biz }: { biz: Business }) {
 
 export function Dashboard() {
   const { businesses } = useStore();
+  const nav = useNavigate();
   const [adding, setAdding] = useState(false);
 
   const portfolio = useMemo(() => {
@@ -409,10 +410,15 @@ export function Dashboard() {
               monthly
             </p>
           </div>
-          <div className="hidden sm:block">
-            <Button onClick={() => setAdding(true)}>
-              <Icon name="plus" size={18} /> Add business
+          <div className="flex items-center gap-2">
+            <Button variant="secondary" size="sm" onClick={() => nav("/app/sheet")}>
+              <Icon name="table" size={16} /> Sheet
             </Button>
+            <div className="hidden sm:block">
+              <Button onClick={() => setAdding(true)}>
+                <Icon name="plus" size={18} /> Add business
+              </Button>
+            </div>
           </div>
         </div>
 

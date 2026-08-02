@@ -23,7 +23,10 @@ export type IconName =
   | "settings"
   | "arrow-right"
   | "coins"
-  | "lock";
+  | "lock"
+  | "download"
+  | "upload"
+  | "table";
 
 const paths: Record<IconName, ReactNodeLike> = {
   plus: <path d="M12 5v14M5 12h14" />,
@@ -141,6 +144,28 @@ const paths: Record<IconName, ReactNodeLike> = {
     <>
       <rect x="3" y="11" width="18" height="11" rx="2" />
       <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+    </>
+  ),
+  download: (
+    <>
+      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+      <path d="M7 10l5 5 5-5" />
+      <path d="M12 15V3" />
+    </>
+  ),
+  upload: (
+    <>
+      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+      <path d="M17 8l-5-5-5 5" />
+      <path d="M12 3v12" />
+    </>
+  ),
+  table: (
+    <>
+      <rect x="3" y="4" width="18" height="16" rx="2" />
+      <path d="M3 10h18" />
+      <path d="M9 10v10" />
+      <path d="M15 10v10" />
     </>
   ),
 };
